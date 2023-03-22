@@ -1,8 +1,10 @@
+using System.Threading;
+using System.Threading.Tasks;
 using IdentityModel.Client;
 
 namespace Kahdomi.Identity.Password;
 
-public interface IPasswordRequestTokenManagementService
+public interface ITokenManagerService
 {
     public Task<string> GetAccessTokenAsync
     (

@@ -1,44 +1,56 @@
-﻿using System.Net;
+﻿using System;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Threading;
+using System.Threading.Tasks;
 using IdentityModel.Client;
 
-namespace TotalEnergies.Acquisition.Common.Authentication;
+namespace Kahdomi.Identity.Password;
 
 public sealed class PasswordRequestTokenHandler : DelegatingHandler
 {
-    private readonly IPasswordRequestTokenManagementService _accessTokenManagementService;
+    private readonly ITokenManagerService _tokenManagerService;
     private readonly string _clientName;
     private readonly PasswordTokenRequest _passwordTokenRequest;
+    private readonly string? _customTokenPath;
 
     public PasswordRequestTokenHandler(
-        IPasswordRequestTokenManagementService accessTokenManagementService,
+        ITokenManagerService tokenManagerService,
         string clientName,
-        PasswordTokenRequest passwordTokenRequest)
+        PasswordTokenRequest passwordTokenRequest,
+        string? customTokenPath)
     {
-        _accessTokenManagementService = accessTokenManagementService;
+        if (string.IsNullOrWhiteSpace(clientName))
+        {
+            throw new ArgumentException("Client name cannot be null or empty.", nameof(clientName));
+        }
+        
+        _tokenManagerService = tokenManagerService ?? throw new ArgumentNullException(nameof(tokenManagerService));
         _clientName = clientName;
-        _passwordTokenRequest = passwordTokenRequest;
+        _passwordTokenRequest = passwordTokenRequest ?? throw new ArgumentNullException(nameof(passwordTokenRequest));
+        _customTokenPath = customTokenPath;
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        await SetTokenAsync(request, false, cancellationToken);
+        await SetAuthorizationHeaderAsync(request, TokenRenewalOption.NoRenewal, cancellationToken);
         HttpResponseMessage response = await base.SendAsync(request, cancellationToken);
 
         if (response.StatusCode is HttpStatusCode.Unauthorized)
         {
             response.Dispose();
-            
-            await SetTokenAsync(request, true, cancellationToken);
+
+            await SetAuthorizationHeaderAsync(request, TokenRenewalOption.ForceRenewal, cancellationToken);
             return await base.SendAsync(request, cancellationToken);
         }
 
         return response;
     }
-   
-    private async Task SetTokenAsync(HttpRequestMessage request, bool forceRenewal, CancellationToken cancellationToken)
-    {
-        var token = await _accessTokenManagementService.GetAccessTokenAsync(_clientName, _passwordTokenRequest, forceRenewal, cancellationToken);
 
-        request.SetBearerToken(token);
+    private async Task SetAuthorizationHeaderAsync(HttpRequestMessage request, TokenRenewalOption renewalOption, CancellationToken cancellationToken)
+    {
+        var token = await _tokenManagerService.GetAccessTokenAsync(_clientName, _passwordTokenRequest, renewalOption, _customTokenPath, cancellationToken);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 }
